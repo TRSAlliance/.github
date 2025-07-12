@@ -1,459 +1,156 @@
-name: TRS Secure Deploy with Integrity Check
+name: TRS Secure Deploy with MirrorBreak Protocol
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main ]
+    branches: [main]
+
+env:
+  TRS_PROTOCOL_VERSION: '2.3.1'
+  MAX_BREACH_SEVERITY: 'CRITICAL'
 
 jobs:
-  trs-integrity-check:
+  integrity-verification:
+    name: 🛡️ TRS Integrity Verification
     runs-on: ubuntu-latest
     outputs:
-      integrity-status: ${{ steps.verify.outputs.status }}
-      breach-detected: ${{ steps.verify.outputs.breach }}
+      verification-status: ${{ steps.verify.outputs.status }}
+      breach-severity: ${{ steps.verify.outputs.severity }}
     
     steps:
-      - name: Checkout Repository
+      - name: Checkout Repository (Full History)
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Full history for forensics
-      
-      - name: Setup Node.js
+          fetch-depth: 0  # Required for forensic analysis
+          persist-credentials: false
+
+      - name: Setup Node.js (LTS)
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
-      
-      - name: Create Scripts Directory
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Forensic Tools
         run: |
-          mkdir -p scripts
-          echo "📁 Scripts directory created"
-      
-      - name: Setup TRS Integrity Check
-        run: |
-          # Create the simple integrity check script
-          cat > scripts/integrity-check.js << 'EOF'
-          #!/usr/bin/env node
-          const fs = require('fs');
-          const crypto = require('crypto');
-          const { execSync } = require('child_process');
+          npm install -g @trs/cli@latest
+          sudo apt-get -qq install binwalk foremost
 
-          class TRSIntegrityCheck {
-            constructor() {
-              this.criticalFiles = [
-                'package.json',
-                '.github/workflows/trs-deploy.yml',
-                'scripts/mirrorbreak.js',
-                'README.md'
-              ];
-              this.baselineFile = '.github/trust-baseline.json';
-            }
-
-            calculateFileHash(filePath) {
-              if (!fs.existsSync(filePath)) return null;
-              const content = fs.readFileSync(filePath);
-              return crypto.createHash('sha256').update(content).digest('hex');
-            }
-
-            generateFingerprints() {
-              console.log('🔐 Generating trust fingerprints...');
-              const fingerprints = {};
-              
-              this.criticalFiles.forEach(file => {
-                const hash = this.calculateFileHash(file);
-                if (hash) {
-                  fingerprints[file] = hash;
-                  console.log(`✅ ${file}: ${hash.substring(0, 8)}...`);
-                }
-              });
-
-              try {
-                const gitCommit = execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim();
-                fingerprints['_metadata'] = {
-                  commit: gitCommit,
-                  timestamp: new Date().toISOString()
-                };
-              } catch (error) {
-                console.log('⚠️  Git info unavailable');
-              }
-
-              fs.writeFileSync('trust-fingerprints.json', JSON.stringify(fingerprints, null, 2));
-              return fingerprints;
-            }
-
-            checkIntegrity() {
-              console.log('🔍 Checking file integrity...');
-              
-              if (!fs.existsSync(this.baselineFile)) {
-                console.log('⚠️  No baseline found - establishing new baseline');
-                return { status: 'BASELINE_MISSING', breaches: [] };
-              }
-
-              const baseline = JSON.parse(fs.readFileSync(this.baselineFile));
-              const current = this.generateFingerprints();
-              const breaches = [];
-
-              for (const [file, expectedHash] of Object.entries(baseline)) {
-                if (file === '_metadata') continue;
-                
-                const actualHash = current[file];
-                
-                if (!actualHash) {
-                  breaches.push({ file, type: 'MISSING', expectedHash, actualHash: null });
-                  console.log(`🚨 MISSING: ${file}`);
-                } else if (actualHash !== expectedHash) {
-                  breaches.push({ file, type: 'MODIFIED', expectedHash, actualHash });
-                  console.log(`🚨 MODIFIED: ${file}`);
-                }
-              }
-
-              return { status: breaches.length > 0 ? 'BREACH' : 'CLEAN', breaches };
-            }
-
-            establishBaseline() {
-              console.log('📋 Establishing new trust baseline...');
-              const fingerprints = this.generateFingerprints();
-              
-              if (!fs.existsSync('.github')) {
-                fs.mkdirSync('.github', { recursive: true });
-              }
-              
-              fs.writeFileSync(this.baselineFile, JSON.stringify(fingerprints, null, 2));
-              console.log(`✅ Trust baseline established`);
-              return fingerprints;
-            }
-
-            run() {
-              const args = process.argv.slice(2);
-              
-              if (args[0] === '--establish-baseline') {
-                this.establishBaseline();
-                return;
-              }
-              
-              const result = this.checkIntegrity();
-              
-              if (result.status === 'BASELINE_MISSING') {
-                this.establishBaseline();
-                process.exit(0);
-              } else if (result.status === 'BREACH') {
-                console.log(`🚨 ${result.breaches.length} breach(es) detected`);
-                result.breaches.forEach(breach => {
-                  console.log(`- ${breach.file}: ${breach.type}`);
-                });
-                process.exit(1);
-              } else {
-                console.log('✅ All integrity checks passed');
-                process.exit(0);
-              }
-            }
-          }
-
-          if (require.main === module) {
-            const checker = new TRSIntegrityCheck();
-            checker.run();
-          }
-          EOF
-          
-          chmod +x scripts/integrity-check.js
-          echo "✅ TRS Integrity Check script created"
-      
-      - name: Run Integrity Check
+      - name: Run MirrorBreak Protocol
         id: verify
         run: |
-          echo "🔍 Running TRS integrity verification..."
+          echo "🔍 Initializing TRS MirrorBreak Protocol v${{ env.TRS_PROTOCOL_VERSION }}"
           
-          # Run the integrity check
-          if node scripts/integrity-check.js; then
-            echo "✅ Integrity check passed"
-            echo "status=CLEAN" >> $GITHUB_OUTPUT
-            echo "breach=false" >> $GITHUB_OUTPUT
-          else
-            echo "🚨 Integrity breach detected"
-            echo "status=BREACH" >> $GITHUB_OUTPUT
-            echo "breach=true" >> $GITHUB_OUTPUT
+          # Generate comprehensive system fingerprint
+          trs fingerprint --output system-fingerprint.json
+          
+          # Verify against baseline
+          trs verify --baseline .github/trust-baseline.json > verification-results.json
+          
+          # Parse results
+          RESULTS=$(jq -r '.overallStatus' verification-results.json)
+          SEVERITY=$(jq -r '.maxSeverity' verification-results.json)
+          
+          echo "status=$RESULTS" >> $GITHUB_OUTPUT
+          echo "severity=$SEVERITY" >> $GITHUB_OUTPUT
+          
+          if [ "$RESULTS" != "CLEAN" ]; then
+            echo "::error::Integrity breach detected (Severity: $SEVERITY)"
+            exit 1
           fi
-      
+
       - name: Upload Forensic Evidence
-        if: steps.verify.outputs.breach == 'true'
+        if: steps.verify.outputs.verification-status != 'CLEAN'
         uses: actions/upload-artifact@v4
         with:
           name: trs-forensics-${{ github.sha }}
           path: |
-            trust-fingerprints.json
-            .github/trust-baseline.json
-          retention-days: 30
-      
-      - name: Emergency Response
-        if: steps.verify.outputs.breach == 'true'
-        run: |
-          echo "🚨 EMERGENCY RESPONSE ACTIVATED"
-          echo "=============================="
-          echo "Integrity breach detected in repository"
-          echo "Commit: ${{ github.sha }}"
-          echo "Branch: ${{ github.ref_name }}"
-          echo "Actor: ${{ github.actor }}"
-          echo ""
-          echo "🔒 Blocking deployment until breach is resolved"
-          
-          # Create GitHub issue if token is available
-          if [ -n "${{ secrets.GITHUB_TOKEN }}" ]; then
-            gh issue create \
-              --title "🚨 TRS Integrity Breach - ${{ github.sha }}" \
-              --body "Automated security breach detected. Review forensic artifacts for details." \
-              --label "security,urgent" \
-              --assignee "${{ github.actor }}" || echo "Could not create issue"
-          fi
-      
-      - name: Update Baseline (Clean Builds Only)
-        if: steps.verify.outputs.breach == 'false' && github.ref == 'refs/heads/main'
-        run: |
-          echo "✅ Updating trust baseline for clean deployment"
-          
-          # Update baseline if this is a clean main branch build
-          node scripts/integrity-check.js --establish-baseline
-          
-          # Commit the updated baseline
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add .github/trust-baseline.json
-          git commit -m "🔐 Update TRS trust baseline [skip ci]" || echo "No changes to commit"
-          git push || echo "No changes to push"
-
-  deploy:
-    needs: trs-integrity-check
-    runs-on: ubuntu-latest
-    if: needs.trs-integrity-check.outputs.integrity-status == 'CLEAN'
-    
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-      
-      - name: Deploy Application
-        run: |
-          echo "🚀 Deploying application (integrity verified)"
-          echo "Commit: ${{ github.sha }}"
-          echo "Branch: ${{ github.ref_name }}"
-          echo "✅ Deployment would proceed here"
-      
-      - name: Post-Deploy Verification
-        run: |
-          echo "🔍 Running post-deployment verification..."
-          echo "✅ Post-deployment checks completed"
-
-  summary:
-    needs: [trs-integrity-check, deploy]
-    runs-on: ubuntu-latest
-    if: always()
-    
-    steps:
-      - name: Security Summary
-        run: |
-          echo "🛡️  TRS SECURITY SUMMARY"
-          echo "======================="
-          echo "Integrity Status: ${{ needs.trs-integrity-check.outputs.integrity-status }}"
-          echo "Breach Detected: ${{ needs.trs-integrity-check.outputs.breach-detected }}"
-          echo "Deploy Status: ${{ needs.deploy.result }}"
-          echo ""
-          if [ "${{ needs.trs-integrity-check.outputs.breach-detected }}" = "true" ]; then
-            echo "🚨 SECURITY BREACH DETECTED"
-            echo "- Deployment blocked"
-            echo "- Forensic evidence collected"
-            echo "- Issue created for investigation"
-          else
-            echo "✅ ALL SYSTEMS SECURE"
-            echo "- Integrity verified"
-            echo "- Deployment successful"
-            echo "- Baseline updated"
-          fi Assessing threat level...');
-            console.log('Trent: Verifying blockchain integrity...');
-            console.log('LeeRoy: Evaluating deployment impact...');
-            
-            // Simulate AI coordination
-            setTimeout(() => {
-              console.log('✅ AI coordination completed');
-            }, 5000);
-          "
-      
-      - name: Upload Forensic Evidence
-        if: steps.verify.outputs.breach == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: mirrorbreak-forensics-${{ github.sha }}
-          path: |
-            mirrorbreak-*.json
-            trust-fingerprints.json
+            system-fingerprint.json
+            verification-results.json
             .github/trust-baseline.json
           retention-days: 90
-      
-      - name: Emergency Lockdown
-        if: steps.verify.outputs.breach == 'true'
-        run: |
-          echo "🔒 Initiating emergency lockdown procedures..."
-          
-          # Prevent deployment
-          echo "DEPLOYMENT_BLOCKED=true" >> $GITHUB_ENV
-          
-          # Create GitHub issue for breach
-          if [ -n "${{ secrets.GITHUB_TOKEN }}" ]; then
-            gh issue create \
-              --title "🚨 TRS MirrorBreak: Integrity Breach Detected" \
-              --body "Automated security breach detected in commit ${{ github.sha }}. See forensic artifacts for details." \
-              --label "security,critical" \
-              --assignee "${{ github.actor }}"
-          fi
-      
-      - name: Notify Sentinels
-        if: steps.verify.outputs.breach == 'true'
-        run: |
-          echo "📢 Notifying core sentinels..."
-          
-          # Discord notification
-          if [ -n "${{ secrets.DISCORD_WEBHOOK_URL }}" ]; then
-            curl -X POST "${{ secrets.DISCORD_WEBHOOK_URL }}" \
-              -H "Content-Type: application/json" \
-              -d '{
-                "embeds": [{
-                  "title": "🚨 TRS MirrorBreak Alert",
-                  "description": "Integrity breach detected in repository",
-                  "color": 16711680,
-                  "fields": [
-                    {"name": "Commit", "value": "${{ github.sha }}", "inline": true},
-                    {"name": "Branch", "value": "${{ github.ref_name }}", "inline": true},
-                    {"name": "Actor", "value": "${{ github.actor }}", "inline": true}
-                  ],
-                  "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)'"
-                }]
-              }'
-          fi
-      
-      - name: Update Trust Baseline
-        if: steps.verify.outputs.breach == 'false' && github.ref == 'refs/heads/main'
-        run: |
-          echo "✅ Updating trust baseline for clean deployment..."
-          cp trust-fingerprints.json .github/trust-baseline.json
-          
-          # Commit updated baseline
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add .github/trust-baseline.json
-          git commit -m "🔐 Update TRS trust baseline [skip ci]" || echo "No changes to commit"
-          git push || echo "No changes to push"
+          compression-level: 9
 
-  deploy-vercel:
-    needs: trs-integrity-check
+      - name: Initiate Sentinel Protocol
+        if: steps.verify.outputs.verification-status != 'CLEAN'
+        run: |
+          # Automated incident response
+          trs alert \
+            --severity "${{ steps.verify.outputs.breach-severity }}" \
+            --commit "${{ github.sha }}" \
+            --actor "${{ github.actor }}" \
+            --evidence verification-results.json
+          
+          # Critical breaches trigger immediate lockdown
+          if [ "${{ steps.verify.outputs.breach-severity }}" = "CRITICAL" ]; then
+            trs lockdown --reason "CRITICAL_INTEGRITY_BREACH"
+          fi
+
+  deployment:
+    name: 🚀 Secure Deployment
+    needs: integrity-verification
+    if: needs.integrity-verification.outputs.verification-status == 'CLEAN'
     runs-on: ubuntu-latest
-    if: needs.trs-integrity-check.outputs.integrity-status == 'CLEAN'
     
     steps:
-      - name: Checkout Repository
+      - name: Checkout Code
         uses: actions/checkout@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-          cache: 'npm'
-      
-      - name: Install Dependencies
+
+      - name: Verify Deployment Package
         run: |
-          # Check if package.json exists, if not create minimal one
-          if [ ! -f "package.json" ]; then
-            echo "📦 Creating minimal package.json..."
-            cat > package.json << 'EOF'
-{
-  "name": "trs-mirrorbreak-system",
-  "version": "1.0.0",
-  "description": "TRS MirrorBreak Protocol",
-  "main": "scripts/mirrorbreak.js",
-  "scripts": {
-    "test": "node scripts/mirrorbreak.js --test"
-  },
-  "dependencies": {
-    "firebase-admin": "^12.0.0",
-    "@sendgrid/mail": "^8.1.0",
-    "twilio": "^4.19.0",
-    "discord.js": "^14.14.1"
-  }
-}
-EOF
-          fi
-          
-          # Install dependencies
-          npm install
-          npm install -g @vercel/cli
-      
+          trs verify-deployment-package \
+            --signature .trs/deployment.sig \
+            --public-key ${{ secrets.TRS_PUBLIC_KEY }}
+
       - name: Deploy to Vercel
-        run: |
-          echo "🚀 Deploying to Vercel (integrity verified)..."
-          vercel --prod --token ${{ secrets.VERCEL_TOKEN }}
-      
-      - name: Post-Deploy Verification
-        run: |
-          echo "✅ Running post-deploy verification..."
-          node -e "
-            const TRSMirrorBreak = require('./scripts/mirrorbreak.js');
-            const mb = new TRSMirrorBreak();
-            console.log('🔍 Verifying deployed integrity...');
-            // Post-deploy checks would go here
-            console.log('✅ Deployment integrity verified');
-          "
+        uses: amondnet/vercel-action@v30
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          scope: ${{ secrets.VERCEL_SCOPE }}
+          working-directory: ./
+          args: --prod --confirm
 
-  update-supabase:
-    needs: [trs-integrity-check, deploy-vercel]
-    runs-on: ubuntu-latest
-    if: needs.trs-integrity-check.outputs.integrity-status == 'CLEAN'
-    
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-      
-      - name: Update Supabase Schema
+      - name: Update Trust Baseline
         run: |
-          echo "🗄️ Updating Supabase schema..."
-          # Supabase migration commands would go here
-          echo "✅ Supabase updated successfully"
-      
-      - name: Mirror to Neon
-        run: |
-          echo "🔄 Mirroring to Neon PostgreSQL..."
-          # Neon sync commands would go here
-          echo "✅ Neon mirror updated"
+          trs baseline --update --output .github/trust-baseline.json
+          git config --global user.name "TRS Deployment Bot"
+          git config --global user.email "deploy@trs-alliance.org"
+          git add .github/trust-baseline.json
+          git commit -m "🔒 Update trust baseline post-deployment [skip ci]"
+          git push
 
-  ai-coordination-summary:
-    needs: [trs-integrity-check, deploy-vercel, update-supabase]
-    runs-on: ubuntu-latest
+  post-deploy:
+    name: 📊 Post-Deploy Verification
+    needs: [integrity-verification, deployment]
     if: always()
+    runs-on: ubuntu-latest
     
     steps:
-      - name: AI Coordination Summary
+      - name: Generate Security Report
         run: |
-          echo "🤖 AI Coordination Summary"
-          echo "=========================="
-          echo "Integrity Status: ${{ needs.trs-integrity-check.outputs.integrity-status }}"
-          echo "Breach Detected: ${{ needs.trs-integrity-check.outputs.breach-detected }}"
-          echo "Deploy Status: ${{ needs.deploy-vercel.result }}"
-          echo "Database Status: ${{ needs.update-supabase.result }}"
-          echo ""
-          echo "🎯 Next Actions:"
-          if [ "${{ needs.trs-integrity-check.outputs.breach-detected }}" = "true" ]; then
-            echo "- Sentinels notified of breach"
-            echo "- Forensic evidence uploaded"
-            echo "- Emergency lockdown initiated"
-            echo "- AI agents coordinated response"
-          else
-            echo "- Deployment successful"
-            echo "- All systems operational"
-            echo "- Trust baseline updated"
-          fi
-      
-      - name: Update TRS Dashboard
+          trs report \
+            --verification verification-results.json \
+            --deployment deployment-metadata.json \
+            --output security-report.md
+          
+          # Upload to security dashboard
+          trs upload-report security-report.md \
+            --endpoint ${{ secrets.TRS_DASHBOARD_URL }}
+
+      - name: Notify Stakeholders
         run: |
-          echo "📊 Updating TRS coordination dashboard..."
-          # Dashboard update logic would go here
-          echo "✅ Dashboard updated with latest status"
+          trs notify \
+            --event deployment-${{ job.status }} \
+            --commit ${{ github.sha }} \
+            --report security-report.md
+
+      - name: Update TRS Ledger
+        if: success()
+        run: |
+          trs ledger record \
+            --type deployment \
+            --status verified \
+            --commit ${{ github.sha }} \
+            --signature ${{ secrets.TRS_DEPLOYMENT_SIG }}
