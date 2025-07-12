@@ -1,4 +1,4 @@
-name: TRS Secure Deploy v2.1
+name: TRS Secure Deploy api-chatgpt v2.2
 
 on:
   push:
@@ -7,9 +7,12 @@ on:
     branches: [main]
 
 env:
-  TRS_PROTOCOL_VERSION: '2.3.2'
+  TRS_PROTOCOL_VERSION: '2.3.3'
   NODE_VERSION: '20'
   LOCKFILE_RETENTION_DAYS: 90
+  TRS_LOGS_DIR: './trs-logs'
+  TRS_SEALS_DIR: './trs-seals'
+  TRS_REPORTS_DIR: './trs-reports'
 
 jobs:
   integrity-verification:
@@ -32,7 +35,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          cache-dependency-path: '**/package-lock.json'  # Simplified path pattern
+          cache-dependency-path: 'package-lock.json'
           always-auth: true
 
       - name: Verify Lockfile Presence
@@ -64,6 +67,12 @@ jobs:
           npm ci --omit=dev --no-audit --ignore-scripts
           echo "✅ Dependencies verified"
 
+      - name: Initialize TRS Directories
+        run: |
+          mkdir -p ${{ env.TRS_LOGS_DIR }}
+          mkdir -p ${{ env.TRS_SEALS_DIR }}
+          echo "TRS directories initialized"
+
       - name: Run TRS Integrity Matrix
         id: verify
         env:
@@ -72,19 +81,14 @@ jobs:
         run: |
           echo "🔐 Initializing TRS Verification Protocol v${{ env.TRS_PROTOCOL_VERSION }}"
           
-          # Create required directories if they don't exist
-          mkdir -p ./trs-logs
-          
-          # Run verification with error handling
-          if ! node scripts/trs-verify.js --level 3 > ./trs-logs/verification-results.json 2> ./trs-logs/verify-errors.log; then
-            echo "::error::TRS Verification Failed - Check trs-logs/verify-errors.log"
-            cat ./trs-logs/verify-errors.log
+          if ! node scripts/trs-verify.js --level 3 > ${{ env.TRS_LOGS_DIR }}/verification-results.json 2> ${{ env.TRS_LOGS_DIR }}/verify-errors.log; then
+            echo "::error::TRS Verification Failed - Check verify-errors.log"
+            cat ${{ env.TRS_LOGS_DIR }}/verify-errors.log
             exit 1
           fi
           
-          # Parse results with fallback values
-          STATUS=$(jq -r '.status // "UNKNOWN"' ./trs-logs/verification-results.json)
-          SEVERITY=$(jq -r '.severity // "MEDIUM"' ./trs-logs/verification-results.json)
+          STATUS=$(jq -r '.status // "UNKNOWN"' ${{ env.TRS_LOGS_DIR }}/verification-results.json)
+          SEVERITY=$(jq -r '.severity // "MEDIUM"' ${{ env.TRS_LOGS_DIR }}/verification-results.json)
           
           echo "status=$STATUS" >> $GITHUB_OUTPUT
           echo "severity=$SEVERITY" >> $GITHUB_OUTPUT
@@ -101,16 +105,15 @@ jobs:
           STEALTH_KEY: ${{ secrets.STEALTH_KEY }}
         run: |
           echo "🛡️ Generating Quantum Trust Seal..."
-          mkdir -p ./trs-seals
           
-          if ! SEAL=$(node scripts/trs-seal.js --commit ${{ github.sha }} --timestamp $(date +%s) 2> ./trs-logs/seal-errors.log); then
+          if ! SEAL=$(node scripts/trs-seal.js --commit ${{ github.sha }} --timestamp $(date +%s) 2> ${{ env.TRS_LOGS_DIR }}/seal-errors.log); then
             echo "::error::Seal generation failed"
-            cat ./trs-logs/seal-errors.log
+            cat ${{ env.TRS_LOGS_DIR }}/seal-errors.log
             exit 1
           fi
           
           echo "seal=$SEAL" >> $GITHUB_OUTPUT
-          echo "$SEAL" > ./trs-seals/trust-seal.json
+          echo "$SEAL" > ${{ env.TRS_SEALS_DIR }}/trust-seal.json
           echo "✅ Seal generated and secured"
 
       - name: Secure Forensic Archive
@@ -119,9 +122,8 @@ jobs:
         with:
           name: trs-forensics-${{ github.sha }}-${{ steps.verify.outputs.breach-severity }}
           path: |
-            ./trs-logs/verification-results.json
-            ./trs-logs/verify-errors.log
-            ./trs-seals/*.json
+            ${{ env.TRS_LOGS_DIR }}/*
+            ${{ env.TRS_SEALS_DIR }}/*
           retention-days: ${{ env.LOCKFILE_RETENTION_DAYS }}
           compression-level: 9
 
@@ -171,9 +173,9 @@ jobs:
     steps:
       - name: Initialize Security Analysis
         run: |
-          mkdir -p ./trs-reports
-          echo "TRS_PROTOCOL_VERSION=${{ env.TRS_PROTOCOL_VERSION }}" > ./trs-reports/env.txt
-          echo "GITHUB_SHA=${{ github.sha }}" >> ./trs-reports/env.txt
+          mkdir -p ${{ env.TRS_REPORTS_DIR }}
+          echo "TRS_PROTOCOL_VERSION=${{ env.TRS_PROTOCOL_VERSION }}" > ${{ env.TRS_REPORTS_DIR }}/env.txt
+          echo "GITHUB_SHA=${{ github.sha }}" >> ${{ env.TRS_REPORTS_DIR }}/env.txt
 
       - name: Generate Threat Assessment
         run: |
@@ -181,9 +183,9 @@ jobs:
           if ! node scripts/trs-threat-assessment.js \
             --status "${{ needs.integrity-verification.outputs.verification-status }}" \
             --seal "${{ needs.integrity-verification.outputs.trust-seal || 'NONE' }}" \
-            --output ./trs-reports/threat-assessment.md 2> ./trs-logs/assessment-errors.log; then
+            --output ${{ env.TRS_REPORTS_DIR }}/threat-assessment.md 2> ${{ env.TRS_LOGS_DIR }}/assessment-errors.log; then
             echo "::warning::Threat assessment generation had issues"
-            cat ./trs-logs/assessment-errors.log
+            cat ${{ env.TRS_LOGS_DIR }}/assessment-errors.log
           fi
 
       - name: Final Status Report
@@ -196,4 +198,4 @@ jobs:
           echo "Deployment Status: ${{ needs.secure-deployment.result || 'NOT_ATTEMPTED' }}"
           echo ""
           echo "Artifacts Generated:"
-          ls -la ./trs-reports/
+          ls -la ${{ env.TRS_REPORTS_DIR }}/
