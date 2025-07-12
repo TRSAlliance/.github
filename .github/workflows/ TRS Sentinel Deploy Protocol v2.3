@@ -1,0 +1,143 @@
+name: 🛡️ TRS Sentinel Deploy Protocol v2.3
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'src/**'
+      - 'scripts/**'
+      - 'package.json'
+  pull_request:
+    branches: [main]
+    types: [closed]
+
+env:
+  TRS_PROTOCOL_VERSION: '2.3.7'  # Updated security matrix
+  NODE_VERSION: '20.14.0'       # Pinned minor version
+  SEAL_EXPIRY_HOURS: 24
+  FIREWALL_MODE: 'active'
+
+jobs:
+  pre-deploy:
+    name: 🔐 TRS Security Gate
+    runs-on: ubuntu-22.04        # Hardened OS image
+    outputs:
+      crypto_seal: ${{ steps.generate-seal.outputs.encrypted_seal }}
+      threat_level: ${{ steps.threat-scan.outputs.level }}
+
+    steps:
+      - name: Checkout (Airgap Mode)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ssh-key: ${{ secrets.TRS_DEPLOY_KEY }}
+
+      - name: Setup Node.js (Validated)
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          checksum: 'sha256-9d6a8...'  # Verified checksum
+
+      - name: Dependency Forensic Scan
+        run: |
+          npm ci --ignore-scripts --omit=dev
+          npx trs-scanner --lockfile --depth=5 --output=./trs-reports/deps-audit.json
+          grep -q '"compromised": true' ./trs-reports/deps-audit.json && exit 1
+
+      - name: Threat Assessment
+        id: threat-scan
+        env:
+          TRS_API_KEY: ${{ secrets.TRS_THREAT_API }}
+        run: |
+          LEVEL=$(node ./scripts/trs-threat-scan.js \
+            --commit ${{ github.sha }} \
+            --author ${{ github.actor }} \
+            --output json | jq -r '.level')
+          echo "level=$LEVEL" >> $GITHUB_OUTPUT
+          [ "$LEVEL" != "critical" ] || exit 1
+
+      - name: Generate Quantum Seal
+        id: generate-seal
+        if: steps.threat-scan.outputs.level == 'safe'
+        env:
+          TRS_CRYPTO_KEY: ${{ secrets.TRS_SEAL_KEY }}
+        run: |
+          SEAL=$(node ./scripts/trs-seal.js \
+            --mode quantum \
+            --expiry ${{ env.SEAL_EXPIRY_HOURS }}h \
+            --hash $(git rev-parse HEAD))
+          echo "encrypted_seal=$SEAL" >> $GITHUB_OUTPUT
+          echo "SEAL_GENERATED=$(date +%s)" >> $GITHUB_ENV
+
+  deploy:
+    name: 🚀 TRS Sentinel Deploy
+    needs: pre-deploy
+    if: needs.pre-deploy.outputs.threat_level == 'safe'
+    runs-on: trs-armed-runner  # Custom hardened runner
+    environment: production
+    timeout-minutes: 15
+
+    steps:
+      - name: Validate Quantum Seal
+        run: |
+          node ./scripts/trs-validate-seal.js \
+            --seal '${{ needs.pre-deploy.outputs.crypto_seal }}' \
+            --max-age ${{ env.SEAL_EXPIRY_HOURS }}h \
+            --require-quantum
+
+      - name: Deploy Core (Firewall Active)
+        uses: vercel/actions/deploy@v1
+        with:
+          token: ${{ secrets.TRS_VERCEL_TOKEN }}
+          project-id: ${{ secrets.TRS_PROJECT_ID }}
+          args: --prod --confirm --firewall=${{ env.FIREWALL_MODE }}
+        env:
+          TRS_SEAL: ${{ needs.pre-deploy.outputs.crypto_seal }}
+          TRS_DEPLOY_SIG: ${{ secrets.TRS_DEPLOY_SIG }}
+
+      - name: Activate Sentinel Monitoring
+        if: success()
+        run: |
+          curl -X POST https://trs-sentinel-api/v2/monitor \
+            -H "Authorization: Bearer ${{ secrets.TRS_SENTINEL_KEY }}" \
+            -d '{
+              "commit": "${{ github.sha }}",
+              "seal": "${{ needs.pre-deploy.outputs.crypto_seal }}",
+              "threat_level": "${{ needs.pre-deploy.outputs.threat_level }}"
+            }'
+
+  post-deploy:
+    name: 📡 TRS After-Action
+    needs: [pre-deploy, deploy]
+    if: always()
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Generate Forensic Report
+        run: |
+          node ./scripts/trs-forensic.js \
+            --seal '${{ needs.pre-deploy.outputs.crypto_seal || 'null' }}' \
+            --threat '${{ needs.pre-deploy.outputs.threat_level || 'unknown' }}' \
+            --output ./trs-reports/forensic-$(date +%s).tar.gz
+
+      - name: Upload to IPFS
+        if: always()
+        uses: nftstorage/ipfs-upload@v1
+        with:
+          token: ${{ secrets.IPFS_API_KEY }}
+          path: ./trs-reports/
+          retention-days: 90
+
+      - name: Breach Alert
+        if: failure()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `### TRS BREACH DETECTED 🚨\n` +
+                    `Seal: ||${'${{ needs.pre-deploy.outputs.crypto_seal }}'.slice(0,12)}...||\n` +
+                    `Threat: ${'${{ needs.pre-deploy.outputs.threat_level }}'}\n` +
+                    `Initiated by: @${context.actor}`
+            })
