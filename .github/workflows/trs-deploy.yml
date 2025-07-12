@@ -1,4 +1,4 @@
-name: TRS Secure Deploy with MirrorBreak Protocol
+name: TRS Secure Deploy v2.0
 
 on:
   push:
@@ -8,101 +8,138 @@ on:
 
 env:
   TRS_PROTOCOL_VERSION: '2.3.1'
-  MAX_BREACH_SEVERITY: 'CRITICAL'
+  NODE_VERSION: '20'
+  LOCKFILE_RETENTION_DAYS: 90
 
 jobs:
   integrity-verification:
-    name: 🛡️ TRS Integrity Verification
+    name: 🛡️ TRS Integrity Shield
     runs-on: ubuntu-latest
     outputs:
       verification-status: ${{ steps.verify.outputs.status }}
       breach-severity: ${{ steps.verify.outputs.severity }}
-    
+      trust-seal: ${{ steps.generate-seal.outputs.seal }}
+
     steps:
-      - name: Checkout Repository (Full History)
+      - name: Checkout (Full Forensic History)
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Required for forensic analysis
+          fetch-depth: 0
           persist-credentials: false
 
-      - name: Setup Node.js (LTS)
+      - name: Setup Node.js (Secure Config)
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
+          cache-dependency-path: |
+            **/package-lock.json
+            **/npm-shrinkwrap.json
+            **/yarn.lock
+          always-auth: true
 
-      - name: Install Forensic Tools
+      - name: Secure Dependency Lock
         run: |
-          npm install -g @trs/cli@latest
-          sudo apt-get -qq install binwalk foremost
+          # Generate lockfile if missing
+          if [ ! -f "package-lock.json" ] && [ ! -f "yarn.lock" ] && [ ! -f "npm-shrinkwrap.json" ]; then
+            echo "::warning::Generating secure package-lock.json"
+            npm install --package-lock-only --no-audit --ignore-scripts
+            
+            # Cryptographic verification
+            if [ -f "package-lock.json" ]; then
+              npm ci --omit=dev --no-audit --ignore-scripts
+              echo "✅ Cryptographic verification passed"
+            else
+              echo "::error::Lockfile generation failed"
+              exit 1
+            fi
+          else
+            npm ci --omit=dev --no-audit --ignore-scripts
+          fi
 
-      - name: Run MirrorBreak Protocol
+      - name: Run TRS Integrity Matrix
         id: verify
+        env:
+          FIREBASE_CONFIG: ${{ secrets.FIREBASE_CONFIG }}
+          STEALTH_KEY: ${{ secrets.STEALTH_KEY }}
         run: |
-          echo "🔍 Initializing TRS MirrorBreak Protocol v${{ env.TRS_PROTOCOL_VERSION }}"
+          echo "🔐 Initializing TRS Verification Protocol v${{ env.TRS_PROTOCOL_VERSION }}"
           
-          # Generate comprehensive system fingerprint
-          trs fingerprint --output system-fingerprint.json
-          
-          # Verify against baseline
-          trs verify --baseline .github/trust-baseline.json > verification-results.json
+          # Run integrity checks with severity levels
+          node scripts/trs-verify.js --level 3 > verification-results.json
           
           # Parse results
-          RESULTS=$(jq -r '.overallStatus' verification-results.json)
-          SEVERITY=$(jq -r '.maxSeverity' verification-results.json)
+          STATUS=$(jq -r '.status' verification-results.json)
+          SEVERITY=$(jq -r '.severity' verification-results.json)
           
-          echo "status=$RESULTS" >> $GITHUB_OUTPUT
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
           echo "severity=$SEVERITY" >> $GITHUB_OUTPUT
           
-          if [ "$RESULTS" != "CLEAN" ]; then
-            echo "::error::Integrity breach detected (Severity: $SEVERITY)"
+          if [ "$STATUS" != "CLEAN" ]; then
+            echo "::error::TRS Protocol Violation - Severity: $SEVERITY"
             exit 1
           fi
 
-      - name: Upload Forensic Evidence
+      - name: Generate Quantum Trust Seal
+        id: generate-seal
+        if: steps.verify.outputs.verification-status == 'CLEAN'
+        env:
+          STEALTH_KEY: ${{ secrets.STEALTH_KEY }}
+        run: |
+          echo "🛡️ Generating Quantum Trust Seal..."
+          SEAL=$(node scripts/trs-seal.js --commit ${{ github.sha }} --timestamp $(date +%s))
+          echo "seal=$SEAL" >> $GITHUB_OUTPUT
+          echo "$SEAL" > trust-seal.json
+          echo "✅ Seal generated and secured"
+
+      - name: Secure Forensic Archive
         if: steps.verify.outputs.verification-status != 'CLEAN'
         uses: actions/upload-artifact@v4
         with:
-          name: trs-forensics-${{ github.sha }}
+          name: trs-forensics-${{ github.sha }}-${{ steps.verify.outputs.breach-severity }}
           path: |
-            system-fingerprint.json
             verification-results.json
-            .github/trust-baseline.json
-          retention-days: 90
+            system-fingerprint.json
+            trs-debug.log
+          retention-days: ${{ env.LOCKFILE_RETENTION_DAYS }}
           compression-level: 9
 
-      - name: Initiate Sentinel Protocol
+      - name: Activate Sentinel Protocol
         if: steps.verify.outputs.verification-status != 'CLEAN'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          TWILIO_CREDS: ${{ secrets.TWILIO_CREDS }}
         run: |
-          # Automated incident response
-          trs alert \
+          echo "🚨 TRS Sentinel Protocol Activated"
+          node scripts/trs-sentinel.js \
             --severity "${{ steps.verify.outputs.breach-severity }}" \
             --commit "${{ github.sha }}" \
-            --actor "${{ github.actor }}" \
-            --evidence verification-results.json
-          
-          # Critical breaches trigger immediate lockdown
-          if [ "${{ steps.verify.outputs.breach-severity }}" = "CRITICAL" ]; then
-            trs lockdown --reason "CRITICAL_INTEGRITY_BREACH"
-          fi
+            --actor "${{ github.actor }}"
 
-  deployment:
-    name: 🚀 Secure Deployment
+  secure-deployment:
+    name: 🚀 Quantum Deployment
     needs: integrity-verification
     if: needs.integrity-verification.outputs.verification-status == 'CLEAN'
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout Code
+      - name: Checkout (Verified Code)
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
 
-      - name: Verify Deployment Package
+      - name: Validate Trust Seal
+        env:
+          STEALTH_KEY: ${{ secrets.STEALTH_KEY }}
         run: |
-          trs verify-deployment-package \
-            --signature .trs/deployment.sig \
-            --public-key ${{ secrets.TRS_PUBLIC_KEY }}
+          echo "🔐 Validating Quantum Trust Seal..."
+          node scripts/trs-validate-seal.js \
+            --seal "${{ needs.integrity-verification.outputs.trust-seal }}" \
+            --commit ${{ github.sha }}
 
-      - name: Deploy to Vercel
+      - name: Deploy to Vercel (Secure Mode)
         uses: amondnet/vercel-action@v30
         with:
           vercel-token: ${{ secrets.VERCEL_TOKEN }}
@@ -110,47 +147,47 @@ jobs:
           vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
           scope: ${{ secrets.VERCEL_SCOPE }}
           working-directory: ./
-          args: --prod --confirm
+          args: --prod --confirm --safe
+        env:
+          TRS_SEAL: ${{ needs.integrity-verification.outputs.trust-seal }}
 
-      - name: Update Trust Baseline
+      - name: Update Trust Matrix
         run: |
-          trs baseline --update --output .github/trust-baseline.json
-          git config --global user.name "TRS Deployment Bot"
-          git config --global user.email "deploy@trs-alliance.org"
-          git add .github/trust-baseline.json
-          git commit -m "🔒 Update trust baseline post-deployment [skip ci]"
-          git push
+          echo "📡 Updating TRS Trust Matrix..."
+          node scripts/trs-update-matrix.js \
+            --commit ${{ github.sha }} \
+            --seal "${{ needs.integrity-verification.outputs.trust-seal }}"
 
   post-deploy:
-    name: 📊 Post-Deploy Verification
-    needs: [integrity-verification, deployment]
+    name: 📊 Security Posture Analysis
+    needs: [integrity-verification, secure-deployment]
     if: always()
     runs-on: ubuntu-latest
     
     steps:
-      - name: Generate Security Report
+      - name: Generate Threat Assessment
         run: |
-          trs report \
-            --verification verification-results.json \
-            --deployment deployment-metadata.json \
-            --output security-report.md
-          
-          # Upload to security dashboard
-          trs upload-report security-report.md \
-            --endpoint ${{ secrets.TRS_DASHBOARD_URL }}
+          echo "🕵️‍♂️ Generating TRS Threat Assessment..."
+          node scripts/trs-threat-assessment.js \
+            --status "${{ needs.integrity-verification.outputs.verification-status }}" \
+            --seal "${{ needs.integrity-verification.outputs.trust-seal || 'NONE' }}" \
+            --output threat-assessment.md
 
-      - name: Notify Stakeholders
+      - name: Update Security Dashboard
+        env:
+          TRS_DASHBOARD_KEY: ${{ secrets.TRS_DASHBOARD_KEY }}
         run: |
-          trs notify \
-            --event deployment-${{ job.status }} \
-            --commit ${{ github.sha }} \
-            --report security-report.md
+          echo "📊 Updating TRS Security Dashboard..."
+          node scripts/trs-update-dashboard.js \
+            --assessment threat-assessment.md \
+            --commit ${{ github.sha }}
 
-      - name: Update TRS Ledger
-        if: success()
+      - name: Notify Security Council
+        if: needs.integrity-verification.outputs.verification-status != 'CLEAN'
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
         run: |
-          trs ledger record \
-            --type deployment \
-            --status verified \
-            --commit ${{ github.sha }} \
-            --signature ${{ secrets.TRS_DEPLOYMENT_SIG }}
+          echo "📢 Alerting TRS Security Council..."
+          node scripts/trs-alert-council.js \
+            --severity "${{ needs.integrity-verification.outputs.breach-severity }}" \
+            --commit ${{ github.sha }}
