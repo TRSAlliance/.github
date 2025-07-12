@@ -1,4 +1,4 @@
-name: TRS Secure Deploy api-chatgpt v2.2
+name: TRS Secure Deploy api-chatgpt v2.2-enhanced
 
 on:
   push:
@@ -24,135 +24,96 @@ jobs:
       trust-seal: ${{ steps.generate-seal.outputs.seal }}
 
     steps:
-      - name: Checkout (Full Forensic History)
+      - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: false
 
-      - name: Setup Node.js (Secure Config)
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          cache-dependency-path: 'package-lock.json'
-          always-auth: true
 
-      - name: Verify Lockfile Presence
+      - name: Ensure Lockfile Exists
         id: lockfile-check
         run: |
-          if [ -f "package-lock.json" ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-            echo "✅ Verified package-lock.json"
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "::warning::No package-lock.json found"
-          fi
-
-      - name: Generate Secure Lockfile
-        if: steps.lockfile-check.outputs.exists == 'false'
-        run: |
-          echo "🔒 Generating secure package-lock.json"
-          npm install --package-lock-only --no-audit --ignore-scripts
-          
           if [ ! -f "package-lock.json" ]; then
-            echo "::error::Lockfile generation failed"
-            exit 1
+            echo "Generating lockfile..."
+            npm install --package-lock-only --no-audit
           fi
-          echo "✅ Cryptographic lockfile generated"
+          echo "exists=true" >> $GITHUB_OUTPUT
 
-      - name: Install Dependencies (Secure Mode)
-        run: |
-          echo "🛡️ Installing with TRS security protocols"
-          npm ci --omit=dev --no-audit --ignore-scripts
-          echo "✅ Dependencies verified"
+      - name: Install Dependencies
+        run: npm ci --omit=dev --no-audit
 
-      - name: Initialize TRS Directories
-        run: |
-          mkdir -p ${{ env.TRS_LOGS_DIR }}
-          mkdir -p ${{ env.TRS_SEALS_DIR }}
-          echo "TRS directories initialized"
-
-      - name: Run TRS Integrity Matrix
+      - name: Run Integrity Check
         id: verify
         env:
           FIREBASE_CONFIG: ${{ secrets.FIREBASE_CONFIG }}
           STEALTH_KEY: ${{ secrets.STEALTH_KEY }}
         run: |
-          echo "🔐 Initializing TRS Verification Protocol v${{ env.TRS_PROTOCOL_VERSION }}"
-          
-          if ! node scripts/trs-verify.js --level 3 > ${{ env.TRS_LOGS_DIR }}/verification-results.json 2> ${{ env.TRS_LOGS_DIR }}/verify-errors.log; then
-            echo "::error::TRS Verification Failed - Check verify-errors.log"
-            cat ${{ env.TRS_LOGS_DIR }}/verify-errors.log
-            exit 1
-          fi
-          
-          STATUS=$(jq -r '.status // "UNKNOWN"' ${{ env.TRS_LOGS_DIR }}/verification-results.json)
-          SEVERITY=$(jq -r '.severity // "MEDIUM"' ${{ env.TRS_LOGS_DIR }}/verification-results.json)
-          
-          echo "status=$STATUS" >> $GITHUB_OUTPUT
-          echo "severity=$SEVERITY" >> $GITHUB_OUTPUT
-          
-          if [ "$STATUS" != "CLEAN" ]; then
-            echo "::error::TRS Protocol Violation - Severity: $SEVERITY"
+          mkdir -p ${{ env.TRS_LOGS_DIR }}
+          if [ -f scripts/trs-verify.js ]; then
+            node scripts/trs-verify.js --level 3 \
+              > ${{ env.TRS_LOGS_DIR }}/verification-results.json \
+              2> ${{ env.TRS_LOGS_DIR }}/verify-errors.log
+          else
+            echo "::error::Verification script not found"
             exit 1
           fi
 
-      - name: Generate Quantum Trust Seal
+          STATUS=$(jq -r '.status' ${{ env.TRS_LOGS_DIR }}/verification-results.json)
+          SEVERITY=$(jq -r '.severity' ${{ env.TRS_LOGS_DIR }}/verification-results.json)
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+          echo "severity=$SEVERITY" >> $GITHUB_OUTPUT
+
+          if [ "$STATUS" != "CLEAN" ]; then
+            echo "::error::Integrity check failed – Severity: $SEVERITY"
+            exit 1
+          fi
+
+      - name: Generate Trust Seal
         id: generate-seal
-        if: steps.verify.outputs.verification-status == 'CLEAN'
+        if: steps.verify.outputs.status == 'CLEAN'
         env:
           STEALTH_KEY: ${{ secrets.STEALTH_KEY }}
         run: |
-          echo "🛡️ Generating Quantum Trust Seal..."
-          
-          if ! SEAL=$(node scripts/trs-seal.js --commit ${{ github.sha }} --timestamp $(date +%s) 2> ${{ env.TRS_LOGS_DIR }}/seal-errors.log); then
-            echo "::error::Seal generation failed"
-            cat ${{ env.TRS_LOGS_DIR }}/seal-errors.log
+          mkdir -p ${{ env.TRS_SEALS_DIR }}
+          if [ -f scripts/trs-seal.js ]; then
+            SEAL=$(node scripts/trs-seal.js --commit ${{ github.sha }} --timestamp $(date +%s))
+            echo "$SEAL" > ${{ env.TRS_SEALS_DIR }}/trust-seal.json
+            echo "seal=$SEAL" >> $GITHUB_OUTPUT
+          else
+            echo "::error::Seal generation script missing"
             exit 1
           fi
-          
-          echo "seal=$SEAL" >> $GITHUB_OUTPUT
-          echo "$SEAL" > ${{ env.TRS_SEALS_DIR }}/trust-seal.json
-          echo "✅ Seal generated and secured"
-
-      - name: Secure Forensic Archive
-        if: steps.verify.outputs.verification-status != 'CLEAN'
-        uses: actions/upload-artifact@v4
-        with:
-          name: trs-forensics-${{ github.sha }}-${{ steps.verify.outputs.breach-severity }}
-          path: |
-            ${{ env.TRS_LOGS_DIR }}/*
-            ${{ env.TRS_SEALS_DIR }}/*
-          retention-days: ${{ env.LOCKFILE_RETENTION_DAYS }}
-          compression-level: 9
 
   secure-deployment:
-    name: 🚀 Quantum Deployment
+    name: 🚀 Deploy (If Verified)
     needs: integrity-verification
     if: needs.integrity-verification.outputs.verification-status == 'CLEAN'
     runs-on: ubuntu-latest
-    
+
     steps:
-      - name: Checkout (Verified Code)
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 0
 
-      - name: Validate Trust Seal
+      - name: Validate Seal
         env:
           STEALTH_KEY: ${{ secrets.STEALTH_KEY }}
         run: |
-          echo "🔐 Validating Quantum Trust Seal..."
-          if ! node scripts/trs-validate-seal.js \
-            --seal "${{ needs.integrity-verification.outputs.trust-seal }}" \
-            --commit ${{ github.sha }}; then
-            echo "::error::Trust Seal Validation Failed"
+          if [ -f scripts/trs-validate-seal.js ]; then
+            node scripts/trs-validate-seal.js \
+              --seal '${{ needs.integrity-verification.outputs.trust-seal }}' \
+              --commit ${{ github.sha }}
+          else
+            echo "::error::Seal validation script missing"
             exit 1
           fi
 
-      - name: Deploy to Vercel (Secure Mode)
+      - name: Deploy to Vercel
         uses: amondnet/vercel-action@v30
         with:
           vercel-token: ${{ secrets.VERCEL_TOKEN }}
@@ -165,37 +126,45 @@ jobs:
           TRS_SEAL: ${{ needs.integrity-verification.outputs.trust-seal }}
 
   post-deploy:
-    name: 📊 Security Posture Analysis
+    name: 📊 Security Review
     needs: [integrity-verification, secure-deployment]
     if: always()
     runs-on: ubuntu-latest
-    
+
     steps:
-      - name: Initialize Security Analysis
+      - name: Generate Threat Report
         run: |
           mkdir -p ${{ env.TRS_REPORTS_DIR }}
-          echo "TRS_PROTOCOL_VERSION=${{ env.TRS_PROTOCOL_VERSION }}" > ${{ env.TRS_REPORTS_DIR }}/env.txt
-          echo "GITHUB_SHA=${{ github.sha }}" >> ${{ env.TRS_REPORTS_DIR }}/env.txt
+          STATUS="${{ needs.integrity-verification.outputs.verification-status }}"
+          SEAL="${{ needs.integrity-verification.outputs.trust-seal || 'NONE' }}"
+          echo "Status: $STATUS" > ${{ env.TRS_REPORTS_DIR }}/summary.txt
+          echo "Seal: $SEAL" >> ${{ env.TRS_REPORTS_DIR }}/summary.txt
 
-      - name: Generate Threat Assessment
-        run: |
-          echo "🕵️‍♂️ Generating TRS Threat Assessment..."
-          if ! node scripts/trs-threat-assessment.js \
-            --status "${{ needs.integrity-verification.outputs.verification-status }}" \
-            --seal "${{ needs.integrity-verification.outputs.trust-seal || 'NONE' }}" \
-            --output ${{ env.TRS_REPORTS_DIR }}/threat-assessment.md 2> ${{ env.TRS_LOGS_DIR }}/assessment-errors.log; then
-            echo "::warning::Threat assessment generation had issues"
-            cat ${{ env.TRS_LOGS_DIR }}/assessment-errors.log
+          if [ -f scripts/trs-threat-assessment.js ]; then
+            node scripts/trs-threat-assessment.js \
+              --status "$STATUS" \
+              --seal "$SEAL" \
+              --output ${{ env.TRS_REPORTS_DIR }}/threat.md
+          else
+            echo "🟡 Threat assessment script missing" >> ${{ env.TRS_REPORTS_DIR }}/threat.md
           fi
 
-      - name: Final Status Report
+      - name: Upload Report Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trs-report-${{ github.sha }}
+          path: ${{ env.TRS_REPORTS_DIR }}/
+          retention-days: 14
+
+      - name: Optional Discord Summary
+        if: always()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
-          echo "📋 TRS Final Deployment Report"
-          echo "============================"
-          echo "Protocol Version: ${{ env.TRS_PROTOCOL_VERSION }}"
-          echo "Integrity Status: ${{ needs.integrity-verification.outputs.verification-status }}"
-          echo "Breach Severity: ${{ needs.integrity-verification.outputs.breach-severity || 'NONE' }}"
-          echo "Deployment Status: ${{ needs.secure-deployment.result || 'NOT_ATTEMPTED' }}"
-          echo ""
-          echo "Artifacts Generated:"
-          ls -la ${{ env.TRS_REPORTS_DIR }}/
+          STATUS="${{ needs.integrity-verification.outputs.verification-status }}"
+          SEVERITY="${{ needs.integrity-verification.outputs.breach-severity || 'NONE' }}"
+          curl -X POST "$DISCORD_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "content": "🛡️ **TRS Deploy Summary**\n- Status: '"$STATUS"'\n- Breach Severity: '"$SEVERITY"'"
+            }'
