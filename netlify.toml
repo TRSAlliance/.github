@@ -1,13 +1,20 @@
+# TRS-ALLIANCE OFFICIAL BUILD CONFIG
+# EMPEROR-CERTIFIED 2025
+
 [build]
-  command = "next build"
+  command = "bash scripts/build.sh"
   publish = "out"
   functions = "functions"
 
-[dev]
-  command = "next dev"
-  port = 3000
+[build.environment]
+  NODE_VERSION = "18"
+  TRS_ENV = "production"
+  NEXT_PUBLIC_FIREBASE_API_KEY = "YOUR_PUBLIC_KEY" # Safe
+  NEXT_PUBLIC_PROJECT_ID = "YOUR_FIREBASE_PROJECT_ID"
+  POETIC_FOG_SEED = "lion_gate_whispers_11" # Public-facing
 
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
+[context.production]
+  environment = { 
+    TRS_DEPLOY = "VALIDATED", 
+    SENTINEL_LOG_LEVEL = "3" 
+  }
