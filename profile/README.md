@@ -56,7 +56,7 @@ Here are some ideas to get you started:
 - **AI Role Enforcement**: Guardrails for DeepSeek, Grok, and internal agents  
 
 ### 📈 Built for Scale
-- **Multi-AI Collaboration**: DeepSeek, Dolphin, Trent, Lee Roy  
+- **Multi-AI Collaboration**: DeepSeek, Grok3, chatgpt, cluade,  
 - **Blockchain Integration**: TRSToken ethics layer  
 - **Adaptive CLI**: Modular, evolving, enforceable  
 
