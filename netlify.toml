@@ -1,6 +1,3 @@
-# TRS-ALLIANCE OFFICIAL BUILD CONFIG
-# EMPEROR-CERTIFIED 2025
-
 [build]
   command = "bash scripts/build.sh"
   publish = "out"
