@@ -1,8 +1,8 @@
-# TRS Alliance 🚀
+# TRS Alliance/.github 🚀
 
 *Balancing human-AI collaboration through ethical systems design, one resilient protocol at a time.*
 
-Welcome to TRS Alliance v2.3, powered by GhostShift — a cutting-edge platform for operators featuring AI-powered workflows, real-time job displacement tracking, and modular system testing environments.
+Welcome to TRS orchestration, powered by GhostShift — a cutting-edge platform for operators featuring AI-powered workflows, real-time job displacement tracking, and modular system testing environments.
 
 > Founded by **Daniel K. L. Hatton** | Innovations Stevedores | Australia 🇦🇺
 
