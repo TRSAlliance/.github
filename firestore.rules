@@ -1,1 +1,39 @@
+// TRSAlliance v2.3 Firestore Security Rules
+rules_version = '2';
+Service Cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ✅ Operators must be authenticated
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // ✅ Only allow reading your own logs
+    match /operatorLogs/{logId} {
+      allow read, list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn();
+      allow update, delete: if false; // Immutable logs
+    }
+
+    // ✅ Trust Scores (read-only)
+    match /trustScores/{userId} {
+      allow read: if isSignedIn();
+      allow write: if false; // Updated by backend only
+    }
+
+    // ✅ Session Playback
+    match /sessions/{sessionId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if false;
+    }
+
+    // ✅ ColdVeil Security Logs (strict)
+    match /coldVeilLogs/{logId} {
+      allow read: if false;   // No client read access
+      allow write: if isSignedIn();
+      allow update, delete: if false;
+    }
+  }
+}
 
