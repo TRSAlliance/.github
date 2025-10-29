@@ -1,0 +1,18 @@
+- import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
++ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+
+- /* stray comment & broken JSX inside renderEquipmentProtocol */
++ /* proper closing of renderEquipmentProtocol + balanced JSX */
+
+- <h4 className="font-medium mb-2 flex items-center gap-2">
+-   <Shield className="h-4 w-4" />      
+- </ul>
+- </ul>
++ <h4 className="font-medium mb-2 flex items-center gap-2">
++   <Shield className="h-4 w-4" /> Load Handling
++ </h4>
++ <ul className="text-sm space-y-1 text-gray-700">
++   <li>• Tilt mast back to stabilize load</li>
++   <li>• Never raise load while travelling</li>
++   <li>• Keep heavy loads low and centered</li>
++ </ul>
