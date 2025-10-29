@@ -1,1 +1,28 @@
-
+{
+  "indexes": [
+    {
+      "collectionGroup": "operatorLogs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "sessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "startAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "trustScores",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "trust", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
