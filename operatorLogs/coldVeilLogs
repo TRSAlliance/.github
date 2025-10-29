@@ -1,0 +1,6 @@
+coldVeilLogs/{logId} {
+  userId: string
+  action: string
+  metadata: object
+  timestamp: Timestamp
+}
