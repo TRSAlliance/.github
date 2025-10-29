@@ -11,7 +11,7 @@ Welcome to TRS orchestration, powered by GhostShift — a cutting-edge platform 
 ## 🌟 Featured Repositories (18 Total)
 
 ### 🏗️ Core Platform
-- [`trs-alliance-v2.3`](https://github.com/TRSAlliance/trs-alliance-v2.3) – Main simulation-ready React + Tailwind platform
+- [`TRS-Alliance-v2.3`](https://github.com/TRSAlliance/trs-alliance-v2.3) – Main simulation-ready React + Tailwind platform
 - [`trsalliance-system`](https://github.com/TRSAlliance/trsalliance-system) – Core system infrastructure
 
 ### 🛡️ Security & Monitoring
