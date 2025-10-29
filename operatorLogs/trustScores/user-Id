@@ -1,0 +1,5 @@
+trustScores/{userId} {
+  trust: number     // 0–100
+  lastUpdated: Timestamp
+  tier: string      // Operator / Sentinel / Admin
+}
