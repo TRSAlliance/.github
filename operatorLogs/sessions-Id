@@ -1,0 +1,8 @@
+sessions/{sessionId} {
+  userId: string
+  events: array
+  startAt: Timestamp
+  endAt: Timestamp
+  trustStart: number
+  trustEnd: number
+}
