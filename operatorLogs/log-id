@@ -1,0 +1,7 @@
+operatorLogs/{logId} {
+  userId: string
+  action: string
+  metadata: object
+  trustDelta: number
+  timestamp: Timestamp
+}
