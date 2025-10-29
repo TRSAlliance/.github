@@ -1,4 +1,5 @@
-TRS Alliance v2.3: GhostShift-Powered Platform
+TRSAlliance
+.github: GhostShift-Powered Platform, part of the TRSAlliance 2.3v-trsalliance.org
 
 TRS Alliance is a simulation-ready platform enabling secure, scalable, and high-performance mission-critical applications. Powered by GhostShift, it provides robust user action logging, verification, and real-time data visualization for operational excellence.
 
