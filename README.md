@@ -1,4 +1,4 @@
-TRSAlliance v2.3 — GhostShift-Powered Platform
+TRS# TRSAlliance v2.3 — GhostShift-Powered Platform
 
 Official repo for the TRS Command Center & GhostShift Simulation Engine
 https://trsalliance.org
